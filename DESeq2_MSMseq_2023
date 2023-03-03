@@ -1,0 +1,674 @@
+#################################################################################
+##################################### Loading packages #################
+
+library(plyr)
+library(tidyr)
+library(dplyr)
+library(DESeq2)
+library("org.Hs.eg.db")
+library(ggplot2)
+library(EnhancedVolcano)
+library(RColorBrewer)
+library(ComplexHeatmap)
+
+install.packages("devtools")
+library("devtools")
+install_github("kassambara/factoextra")
+library(factoextra)
+
+###################### Analysis of samples in t1 ############################
+
+#set working directory in the format /path/to/working/directory
+setwd("C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene/t1")
+
+#load all ReadsPerGene file of each sample in a list and then binding them by columns
+data_t1 <- list.files(path = "C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene/t1", 
+                      pattern = "*.csv") %>%
+  lapply(read.csv, header = FALSE) %>%
+  bind_cols
+
+#remove columns of duplicate gene names
+dataFrame_t1 <- data_t1[!duplicated(as.list(data_t1))]
+
+#input correct column names to match each sample name
+colnames(dataFrame_t1) <- c( "Gene_ID", "A1D", "A1DP", "A1N", "A1P",
+                             "B1D", "B1DP", "B1N", "B1P", 
+                             "C1D", "C1DP", "C1N", "C1P", 
+                             "D1D", "D1DP", "D1N", "D1P", 
+                             "E1D", "E1DP", "E1N", "E1P", 
+                             "F1D", "F1DP", "F1N", "F1P"
+                             )
+
+#input correct row names
+rownames(dataFrame_t1) <- dataFrame_t1$Gene_ID
+
+#delete the gene ID column
+dataFrame_t1 <- dataFrame_t1[,-1]
+
+#Check to see if the sample sheet is present in the directory
+path_to_my_data <- file.path("C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene/t1")
+file.exists(path_to_my_data)
+
+#Read in the meta data
+metaData_t1 = read.delim("metaData_t1.txt", header = TRUE)
+metaData_t1
+
+#relable row names 
+rownames(metaData_t1) <- metaData_t1$Sample
+metaData_t1 <- metaData_t1[,-1]
+
+#check to see whether row names in metaData match column names in dataFrame
+all(colnames(dataFrame_t1) %in% rownames(metaData_t1))
+
+#the values are also in the same order? 
+all(colnames(dataFrame_t1) == rownames(metaData_t1))
+
+#constructing a DeSeq2 object
+dds_t1 <- DESeqDataSetFromMatrix(countData=dataFrame_t1, 
+                              colData=metaData_t1,
+                              design= ~Treatment)
+
+
+#specify factor level
+dds_t1$Treatment <- relevel(dds_t1$Treatment, ref = "Control")
+
+#checking model matrix
+model.matrix(~Treatment, data = metaData_t1)
+
+#pre-filtering: keeping only rows with at least 10 reads
+keep <- rowSums(counts(dds_t1)) >= 10
+dds_t1 <- dds_t1[keep,]
+
+#running DeSeq2
+dds_t1 <- DESeq(dds_t1)
+
+#take a look at the result
+resultsNames(dds_t1)
+
+res_t1_DvC <- results(dds_t1,contrast=c("Treatment","DEX", "Control"))
+res_t1_PvC <- results(dds_t1,contrast=c("Treatment","PGE2", "Control"))
+res_t1_PDvC <- results(dds_t1,contrast=c("Treatment","PGE2_DEX", "Control"))
+
+#sort results by p-value
+res_t1_DvC <- res_t1_DvC[order(res_t1_DvC$padj),]
+head(res_t1_DvC)
+
+res_t1_PvC <- res_t1_PvC[order(res_t1_PvC$padj),]
+head(res_t1_PvC)
+
+res_t1_PDvC <- res_t1_PDvC[order(res_t1_PDvC$padj),]
+head(res_t1_PDvC)
+
+#convert result of DESeq2 to a dataframe
+resDF_t1_DvC <- as.data.frame(res_t1_DvC)
+resDF_t1_PvC <- as.data.frame(res_t1_PvC)
+resDF_t1_PDvC <- as.data.frame(res_t1_PDvC)
+
+#adding gene IDs
+resDF_t1_DvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_DvC), 
+                           keytype = "ENSEMBL", column = "SYMBOL")
+resDF_t1_PvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_PvC), 
+                            keytype = "ENSEMBL", column = "SYMBOL")
+resDF_t1_PDvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_PDvC), 
+                                keytype = "ENSEMBL", column = "SYMBOL")
+
+
+#removing NAs value in padj, filtering for DEG, printing to cvs
+DEG_t1_DvC <- resDF_t1_DvC[(abs(resDF_t1_DvC$log2FoldChange) > 1.5) 
+                         & (resDF_t1_DvC$padj) < 0.05 , ]
+write.csv(DEG_t1_DvC, file = "topGenes_t1_DvC.csv")
+
+
+resDF_t1_PvC <- resDF_t1_PvC[!is.na(resDF_t1_PvC$padj),]
+DEG_t1_PvC <- resDF_t1_PvC[(abs(resDF_t1_PvC$log2FoldChange) > 1.5)
+                         & (resDF_t1_PvC$padj) < 0.05 , ]
+write.csv(DEG_t1_PvC, file = "topGenes_t1_PvC.csv")
+
+
+resDF_t1_PDvC  <- resDF_t1_PDvC [!is.na(resDF_t1_PDvC $padj),]
+DEG_t1_PDvC <- resDF_t1_PDvC [(abs(resDF_t1_PDvC $log2FoldChange) > 1.5) 
+                           & (resDF_t1_PDvC $padj) < 0.05 , ]
+write.csv(DEG_t1_PDvC, file = "topGenes_t1_PDvC.csv")
+
+############################ PCA plot t1 ####################################
+rld_t1 <- rlog(dds_t1)
+head(assay(rld_t1))
+
+#PCA plot using log transformed data
+
+plotPCA(rld_t1, intgroup = "Treatment")
+
+rld_mat_t1 <- assay(rld_t1)
+pca_t1 <- prcomp(t(rld_mat_t1))
+df_t1 <- cbind(metaData_t1, pca_t1$x)
+ggplot(df_t1) + geom_point(aes(x=PC3, y=PC5, color = Treatment)) + 
+  geom_text(aes(x=PC3, y=PC5, label=rownames(df_t1)), vjust = 2)
+
+
+library(factoextra)
+#screeplot:
+fviz_eig(pca) 
+
+################ pca_t6 ###################
+rld_t6 <- rlog(dds_t6)
+head(assay(rld_t6))
+
+#PCA plot using log transformed data
+
+plotPCA(rld_t6, intgroup = "Treatment")
+
+
+rld_mat_t6 <- assay(rld_t6)
+pca_t6 <- prcomp(t(rld_mat_t6))
+df_t6 <- cbind(metaData_t6, pca_t6$x)
+ggplot(df_t6) + geom_point(aes(x=PC3, y=PC5, color = Treatment)) + 
+  geom_text(aes(x=PC3, y=PC5, label=rownames(df_t6)), vjust = 2)
+
+
+library(factoextra)
+#screeplot:
+fviz_eig(pca_t6)
+
+############### volcano plots t1 ####################
+
+#DEX vs Control
+resDF_t1_DvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_DvC), 
+                       keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t1_DvC, title = "DEX versus Control at t1", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t1_DvC$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+#PGE2 vs Control
+resDF_t1_PvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_PvC), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t1_PvC, title = "PGE2 versus Control at t1", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t1_PvC$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+#PGE2_DEX vs Control 
+resDF_t1_PDvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_PDvC), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t1_PDvC, title = "PGE2 + DEX versus Control at t1", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t1_PDvC$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+#################### Re-leveling with PGE2_DEX in t1 ###########################
+
+#specify factor level
+dds_PD_t1 <- dds_t1
+dds_PD_t1$Treatment <- relevel(dds_t1$Treatment, ref = "PGE2_DEX")
+
+#checking new reference level
+dds_PD_t1$Treatment
+
+#running DeSeq
+dds_PD_t1 <- DESeq(dds_PD_t1)
+
+resultsNames(dds_PD_t1)
+
+res_t1_DvPD <- results(dds_PD_t1,contrast=c("Treatment", "PGE2_DEX", "DEX"))
+res_t1_PvPD <- results(dds_PD_t1,contrast=c("Treatment", "PGE2_DEX", "PGE2"))
+
+#sort results by p-value
+res_t1_DvPD <- res_t1_DvPD[order(res_t1_DvPD$padj),]
+head(res_t1_DvPD)
+
+res_t1_PvPD <- res_t1_PvPD[order(res_t1_PvPD$padj),]
+head(res_t1_PvPD)
+
+#saving to dataframe
+resDF_t1_DvPD <- as.data.frame(res_t1_DvPD)
+resDF_t1_PvPD <- as.data.frame(res_t1_PvPD)
+
+
+resDF_t1_DvPD$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_DvPD), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+resDF_t1_PvPD$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_PvPD), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+
+resDF_t1_DvPD <- resDF_t1_DvPD[!is.na(resDF_t1_DvPD$padj) & (resDF_t1_DvPD$baseMean > 500),]
+DEG_t1_DvPD <- resDF_t1_DvPD[(abs(resDF_t1_DvPD$log2FoldChange) > 1.5) 
+                           & (resDF_t1_DvPD$padj) < 0.05 , ]
+write.csv(DEG_t1_DvPD, file = "topGenes_t1_DvPD.csv")
+
+
+resDF_t1_PvPD <- resDF_t1_PvPD[!is.na(resDF_t1_PvPD$padj) & (resDF_t1_PvPD$baseMean > 500),]
+DEG_t1_PvPD <- resDF_t1_PvPD[(abs(resDF_t1_PvPD$log2FoldChange) > 1.5)
+                           & (resDF_t1_PvPD$padj) < 0.05 , ]
+write.csv(DEG_t1_PvPD, file = "topGenes_t1_PvPD.csv")
+
+
+############################## Volcano Plot for PD at t1 #######################
+#DEX vs PGE2_DEX
+resDF_t1_DvPD$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_DvPD), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t1_DvPD, title = "PGE2_DEX vs DEX at t1", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t1_DvPD$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+#PGE2 vs Control
+resDF_t1_PvPD $symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t1_PvC), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t1_PvPD, title = "PGE2_DEX vs PGE2 at t1", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t1_PvPD$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+###################### Analysis of samples in t6 ############################
+
+#set working directory in the format /path/to/working/directory
+setwd("C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene/t6")
+
+#load all ReadsPerGene file of each sample in a list and then binding them by columns
+data_t6 <- list.files(path = "C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene/t6", 
+                      pattern = "*.csv") %>%
+  lapply(read.csv, header = FALSE) %>%
+  bind_cols
+
+#remove columns of duplicate gene names
+dataFrame_t6 <- data_t6[!duplicated(as.list(data_t6))]
+
+#input correct column names to match each sample name
+colnames(dataFrame_t6) <- c( "Gene_ID", "A6D", "A6DP", "A6N", "A6P",
+                             "B6D", "B6DP", "B6N", "B6P", 
+                             "C6D", "C6DP", "C6N", "C6P", 
+                             "D6D", "D6DP", "D6N", "D6P", 
+                             "E6D", "E6DP", "E6N", "E6P", 
+                             "F6D", "F6DP", "F6N", "F6P"
+                             )
+
+#input correct row names
+rownames(dataFrame_t6) <- dataFrame_t6$Gene_ID
+
+#delete the gene ID column
+dataFrame_t6 <- dataFrame_t6[,-1]
+
+#Check to see if the sample sheet is present in the directory
+path_to_my_data <- file.path("C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene/t6")
+file.exists(path_to_my_data)
+
+#Read in the meta data
+metaData_t6 = read.delim("metaData_t6.txt", header = TRUE)
+metaData_t6
+
+#relable row names 
+rownames(metaData_t6) <- metaData_t6$Sample
+metaData_t6 <- metaData_t6[,-1]
+
+#check to see whether row names in metaData match column names in dataFrame
+all(colnames(dataFrame_t6) %in% rownames(metaData_t6))
+
+#the values are also in the same order? 
+all(colnames(dataFrame_t6) == rownames(metaData_t6))
+
+#constructing a DeSeq2 object
+dds_t6 <- DESeqDataSetFromMatrix(countData=dataFrame_t6, 
+                                 colData=metaData_t6,
+                                 design= ~Treatment)
+
+
+#specify factor level
+dds_t6$Treatment <- relevel(dds_t6$Treatment, ref = "Control")
+
+#checking model matrix
+model.matrix(~Treatment, data = metaData_t6)
+
+#pre-filtering: keeping only rows with at least 10 reads
+keep <- rowSums(counts(dds_t6)) >= 10
+dds_t6 <- dds_t6[keep,]
+
+#running DeSeq2
+dds_t6 <- DESeq(dds_t6)
+
+#take a look at the result
+resultsNames(dds_t6)
+
+res_t6_DvC <- results(dds_t6,contrast=c("Treatment","DEX", "Control"))
+res_t6_PvC <- results(dds_t6,contrast=c("Treatment","PGE2", "Control"))
+res_t6_PDvC <- results(dds_t6,contrast=c("Treatment","PGE2_DEX", "Control"))
+
+#sort results by p-value
+res_t6_DvC <- res_t6_DvC[order(res_t6_DvC$padj),]
+res_t6_PvC <- res_t6_PvC[order(res_t6_PvC$padj),]
+res_t6_PDvC <- res_t6_PDvC[order(res_t6_PDvC$padj),]
+
+
+#convert result of DESeq2 to a dataframe
+resDF_t6_DvC <- as.data.frame(res_t6_DvC)
+resDF_t6_PvC <- as.data.frame(res_t6_PvC)
+resDF_t6_PDvC <- as.data.frame(res_t6_PDvC)
+
+#adding gene IDs
+resDF_t6_DvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_DvC), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+resDF_t6_PvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_PvC), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+resDF_t6_PDvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_PDvC), 
+                               keytype = "ENSEMBL", column = "SYMBOL")
+
+#removing NAs value in padj, filtering for DEG, printing to cvs
+resDF_t6_DvC <- resDF_t6_DvC[!is.na(resDF_t6_DvC$padj),]
+DEG_t6_DvC <- resDF_t6_DvC[(abs(resDF_t6_DvC$log2FoldChange) > 1.5) 
+                         & (resDF_t6_DvC$padj) < 0.05 , ]
+write.csv(DEG_t6_DvC, file = "topGenes_t6_DvC.csv")
+
+
+resDF_t6_PvC <- resDF_t6_PvC[!is.na(resDF_t6_PvC$padj),]
+DEG_t6_PvC <- resDF_t6_PvC[(abs(resDF_t6_PvC$log2FoldChange) > 1.5)
+                         & (resDF_t6_PvC$padj) < 0.05 , ]
+write.csv(DEG_t6_PvC, file = "topGenes_t6_PvC.csv")
+
+resDF_t6_PDvC <- resDF_t6_PDvC[!is.na(resDF_t6_PDvC$padj),]
+DEG_t6_PDvC <- resDF_t6_PDvC[(abs(resDF_t6_PDvC$log2FoldChange) > 1.5) 
+                           & (resDF_t6_PDvC$padj) < 0.05 , ]
+write.csv(DEG_t6_PDvC, file = "topGenes_t6_PDvC.csv")
+
+############################ PCA plot t6 ####################################
+
+vsdata_t6 <- vst(dds_t6, blind = FALSE)
+plotPCA(vsdata_t6, intgroup = "Treatment") + geom_text(aes(label=name), vjust = 2)
+
+
+############### volcano plots t6 #####################
+
+#DEX vs Control
+resDF_t6_DvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_DvC), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t6_DvC, title = "DEX versus Control at t6", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t6_DvC$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+#PGE2 vs Control
+resDF_t6_PvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_PvC), 
+                              keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t6_PvC, title = "PGE2 versus Control at t6", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t6_PvC$symbol,
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+#PGE2_DEX vs Control 
+resDF_t6_PDvC$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_PDvC), 
+                               keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t6_PDvC, title = "PGE2 + DEX versus Control at t6", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t6_PDvC$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+
+#################### Re-leveling with PGE2_DEX in t6 ###########################
+
+#specify factor level
+dds_PD_t6 <- dds_t6
+dds_PD_t6$Treatment <- relevel(dds_t6$Treatment, ref = "PGE2_DEX")
+
+#checking new reference level
+dds_PD_t6$Treatment
+
+#running DeSeq
+dds_PD_t6 <- DESeq(dds_PD_t6)
+
+resultsNames(dds_PD_t6)
+
+res_t6_DvPD <- results(dds_PD_t6,contrast=c("Treatment", "PGE2_DEX", "DEX"))
+res_t6_PvPD <- results(dds_PD_t6,contrast=c("Treatment", "PGE2_DEX", "PGE2"))
+
+#sort results by p-value
+res_t6_DvPD <- res_t6_DvPD[order(res_t6_DvPD$padj),]
+head(res_t6_DvPD)
+
+res_t6_PvPD <- res_t6_PvPD[order(res_t6_PvPD$padj),]
+head(res_t6_PvPD)
+
+
+#saving to dataframe
+resDF_t6_DvPD <- as.data.frame(res_t6_DvPD)
+resDF_t6_PvPD <- as.data.frame(res_t6_PvPD)
+
+resDF_t6_DvPD$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_DvPD), 
+                               keytype = "ENSEMBL", column = "SYMBOL")
+resDF_t6_PvPD$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_PvPD), 
+                               keytype = "ENSEMBL", column = "SYMBOL")
+
+resDF_t6_DvPD <- resDF_t6_DvPD[!is.na(resDF_t6_DvPD$padj) & (resDF_t6_DvPD$baseMean > 500),]
+DEG_t6_DvPD <- resDF_t1_PvPD[(abs(resDF_t6_DvPD$log2FoldChange) > 1.5) 
+                             & (resDF_t1_PvPD$padj) < 0.05 , ]
+write.csv(DEG_t6_DvPD, file = "topGenes_t6_DvPD.csv")
+
+
+resDF_t6_PvPD <- resDF_t6_PvPD[!is.na(resDF_t6_PvPD$padj) & (resDF_t6_PvPD$baseMean > 500),]
+DEG_t6_PvPD <- resDF_t6_PvPD[(abs(resDF_t6_PvPD$log2FoldChange) > 1.5)
+                           & (resDF_t6_PvPD$padj) < 0.05 , ]
+write.csv(DEG_t6_PvPD, file = "topGenes_t6_PvPD.csv")
+
+############################## Volcano Plot for PD at t6 #######################
+#DEX vs PGE2_DEX
+resDF_t6_DvPD$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_DvPD), 
+                               keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t6_DvPD, title = "PGE2_DEX vs DEX at t6", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t6_DvPD$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+#PGE2 vs PGE2_DEX
+resDF_t6_PvPD $symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_t6_PvPD), 
+                                keytype = "ENSEMBL", column = "SYMBOL")
+
+EnhancedVolcano(resDF_t6_PvPD, title = "PGE2_DEX vs PGE2 at t6", 
+                x = "log2FoldChange", y = "padj", lab = resDF_t6_PvPD$symbol, 
+                xlab = bquote(~Log[2] ~ "Fold Change"),
+                ylab = bquote(~-Log[10] ~ italic(P-adj)),
+                legendLabels = c("NS", expression(Log[2] ~ FC), "p-adj", 
+                                 expression(p - adj ~ and ~ log[2] ~ FC)))
+
+
+######################### t1 vs t6 using Interaction term #######################
+
+#set working directory in the format /path/to/working/directory
+setwd("C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene")
+
+#load all ReadsPerGene file of each sample in a list and then binding them by columns
+data <- list.files(path = "C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene", 
+                   pattern = "*.csv") %>%
+  lapply(read.csv, header = FALSE) %>%
+  bind_cols
+
+#remove columns of duplicate gene names
+dataFrame <- data[!duplicated(as.list(data))]
+
+#input correct column names to match each sample name
+colnames(dataFrame) <- c( "Gene_ID", "A1D", "A1DP", "A1N",	"A1P",	"A6D", "A6DP", "A6N", "A6P",
+                          "B1D", "B1DP", "B1N",	"B1P",	"B6D",	"B6DP", "B6N",	"B6P",	
+                          "C1D",	"C1DP", "C1N",	"C1P",	"C6D",	"C6DP", "C6N",	"C6P",
+                          "D1D",	"D1DP",	"D1N",	"D1P",	"D6D",	"D6DP",	"D6N",	"D6P",	
+                          "E1D",	"E1DP",	"E1N",	"E1P",	"E6D",	"E6DP",	"E6N",	"E6P",
+                          "F1D",	"F1DP",	"F1N",	"F1P",	"F6D",	"F6DP", "F6N",	"F6P"																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																																										
+)
+
+#input correct row names
+rownames(dataFrame) <- dataFrame$Gene_ID
+
+#delete the gene ID column
+dataFrame <- dataFrame[,-1]
+
+#Check to see if the sample sheet is present in the directory
+path_to_my_data <- file.path("C:/Users/chidi/Downloads/Fourth_Year/MDSC_508/arc/MSMseq_ReadsPerGene")
+file.exists(path_to_my_data)
+
+#Read in the meta data
+metaData = read.delim("metaData.txt", header = TRUE)
+metaData
+
+#relable row names 
+rownames(metaData) <- metaData$Sample
+metaData <- metaData[,-1]
+
+#check to see whether row names in metaData match column names in dataFrame
+all(colnames(dataFrame) %in% rownames(metaData))
+
+#the values are also in the same order? 
+all(colnames(dataFrame) == rownames(metaData))
+
+#constructing a DeSeq2 object
+dds <- DESeqDataSetFromMatrix(countData=dataFrame, 
+                              colData=metaData,
+                              design= ~ Time + Treatment + Time:Treatment)
+
+
+#specify factor level
+dds$Treatment <- relevel(dds$Treatment, ref = "Control")
+dds$Time <- relevel(dds$Time, "t1")
+#checking model matrix
+model.matrix(~Time + Treatment + Time:Treatment, data = metaData)
+
+dds 
+
+#pre-filtering: keeping only rows with at least 10 reads
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+#running DeSeq2
+dds <- DESeq(dds)
+
+resultsNames(dds)
+
+#saving results of each treatments
+res_DEX <-results(dds, contrast=list(c("Treatment_DEX_vs_Control", "Timet6.TreatmentDEX")))
+res_PGE2 <-results(dds, contrast=list(c("Treatment_PGE2_vs_Control", "Timet6.TreatmentPGE2")))
+res_PGE2_DEX <-results(dds, contrast=list(c("Treatment_PGE2_DEX_vs_Control", "Timet6.TreatmentPGE2_DEX")))
+
+#sort results by p-value
+res_DEX <- res_DEX[order(res_DEX$padj),]
+res_PGE2 <- res_PGE2[order(res_PGE2$padj),]
+res_PGE2_DEX <- res_PGE2_DEX[order(res_PGE2_DEX$padj),]
+
+
+#convert result of DESeq2 to a dataframe
+resDF_DEX <- as.data.frame(res_DEX)
+resDF_PGE2 <- as.data.frame(res_PGE2)
+resDF_PGE2_DEX <- as.data.frame(res_PGE2_DEX)
+
+#adding gene IDs
+resDF_DEX$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_DEX), 
+                       keytype = "ENSEMBL", column = "SYMBOL")
+resDF_PGE2$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resDF_PGE2), 
+                       keytype = "ENSEMBL", column = "SYMBOL")
+resDF_PGE2_DEX$symbol <- mapIds(org.Hs.eg.db, keys = rownames(res_PGE2_DEX), 
+                       keytype = "ENSEMBL", column = "SYMBOL")
+
+#Filtering for high baseMean, Log2FC and p-adj
+topGenes_time_DEX <- resDF_DEX[(resDF_DEX$baseMean > 500) & (abs(resDF_DEX$log2FoldChange) > 2) 
+               & (resDF_DEX$padj) < 0.05 , ]
+topGenes_time_PGE2 <- resDF_PGE2[(resDF_PGE2$baseMean > 500) & (abs(resDF_PGE2$log2FoldChange) > 2) 
+               & (resDF_PGE2$padj) < 0.05 , ]
+topGenes_time_PGE2DEX <- resDF_PGE2_DEX[(resDF_PGE2_DEX$baseMean > 500) & 
+                                   (abs(resDF_PGE2_DEX$log2FoldChange) > 1.5) & 
+                                   (resDF_PGE2_DEX$padj) < 0.05 , ]
+
+write.csv(topGenes_time_DEX, file = "topGenes_time_DEX.csv")
+write.csv(topGenes_time_PGE2, file = "topGenes_time_PGE2.csv")
+write.csv(topGenes_time_PGE2DEX, file = "topGenes_time_PGE2DEX.csv")
+
+############################ Heatmap using Interaction Term ####################
+res <- results(dds)
+resDF <- as.data.frame(res)
+
+#filtering
+resHM <- resDF[(resDF$baseMean > 500) & (abs(resDF$log2FoldChange) > 1.5) 
+               & (abs(resDF$padj)) < 0.001 , ]
+
+#map ENSMBL IDs to gene names
+resHM$symbol <- mapIds(org.Hs.eg.db, keys = rownames(resHM), 
+                       keytype = "ENSEMBL", column = "SYMBOL")
+
+#getting normalized counts
+mat <- counts(dds, normalized = T)[rownames(resHM),]
+
+#getting Z-score
+mat_Z <- t(apply(mat, 1, scale))
+
+colnames(mat_Z) <- rownames(metaData)
+
+#constructing the heat map
+Heatmap(mat_Z, cluster_rows = T, cluster_columns = T, column_labels = colnames(mat_Z), 
+        name = "Z-score", row_labels = resHM[rownames(mat_Z),]$symbol)
+
+
+
+vsdata <- vst(dds, blind = FALSE)
+plotPCA(vsdata, intgroup = c("Treatment", "Time")) + geom_text(aes(label=name), vjust = 2)
+
+##################### plotCounts ###################################
+#RHOQ and RASD1
+plotCounts(dds_t6, "ENSG00000119729", intgroup = c("Treatment")) 
+plotCounts(dds_t6, "ENSG00000108551", intgroup = c("Treatment")) 
+
+#EP1
+EP1 <-plotCounts(dds, "ENSG00000160951", intgroup = c("Treatment", "Time"), returnData = TRUE) 
+EP1$Treat <- paste(EP1$Treatment, EP1$Time, sep="_")
+
+ggplot(EP1, aes(x=Treat, y = count, colour = Treat)) + 
+         geom_point(aes(x=Treat)) + 
+  geom_text(aes(label=rownames(EP1)), vjust = 2) + ggtitle("EP1") +
+  xlab("Treatment") + ylab("normalized count")
+
+geom_text(aes(label=name, vjust = 0))
+
+#EP2
+EP2 <-plotCounts(dds, "ENSG00000125384", intgroup = c("Treatment", "Time"), returnData = TRUE) 
+EP2$Treat <- paste(EP2$Treatment, EP2$Time, sep="_")
+
+ggplot(EP2, aes(x=Treat, y = count, colour = Treat)) + 
+  geom_point(aes(x=Treat)) + 
+  geom_text(aes(label=rownames(EP2)), vjust = 2) + ggtitle("EP2") +
+  xlab("Treatment") + ylab("normalized count")
+
+
+#EP3
+EP3 <-plotCounts(dds, "ENSG00000050628", intgroup = c("Treatment", "Time"), returnData = TRUE) 
+EP3$Treat <- paste(EP3$Treatment, EP3$Time, sep="_")
+
+ggplot(EP3, aes(x=Treat, y = count, colour = Treat)) + 
+  geom_point(aes(x=Treat)) + 
+  geom_text(aes(label=rownames(EP3)), vjust = 2) + ggtitle("EP3") +
+  xlab("Treatment") + ylab("normalized count")
+
+#EP4
+EP4 <- plotCounts(dds, "ENSG00000171522", intgroup = c("Treatment", "Time"), returnData = TRUE) 
+EP4$Treat <- paste(EP4$Treatment, EP4$Time, sep="_")
+
+ggplot(EP4, aes(x=Treat, y = count, colour = Treat)) + 
+  geom_point(aes(x=Treat)) + 
+  geom_text(aes(label=rownames(EP4)), vjust = 2) + ggtitle("EP4") +
+  xlab("Treatment") + ylab("normalized count")
