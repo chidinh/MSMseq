@@ -93,9 +93,13 @@ model.matrix(~Location, data = metaData_n6)
 keep <- rowSums(counts(dds_n6)) >= 10
 dds_n6 <- dds_n6[keep,]
 
-dds_n6$group <- factor(paste0(dds_n6$Location, dds_n6$T.PT))
+dds_n6$group <- factor(paste0(dds_n6$Location, dds_n6$Status))
 design(dds_n6) <- ~ group
-dds_n6$group <- relevel(dds_n6$group, ref="Myo_LowerT")
+dds_n6$group <- relevel(dds_n6$group, ref="Myo_LowerTL")
+
+levels(dds_n6$group)
+
+dds_n6 <- DESeq(dds_n6)
 
 levels(dds_n6$group)
 
@@ -173,7 +177,12 @@ write.csv(DEG_n6_MUvML, file = "topGenes_n6_MUvML.csv")
 write.csv(DEG_n6_PvML, file = "topGenes_n6_PvML.csv")
 
 #RHOQ 
-plotCounts(dds_n6, "ENSG00000119729", intgroup = c("Location")) 
+RHOQ <- plotCounts(dds_n6, "ENSG00000119729", intgroup = c("group"), returnData = TRUE) 
+ggplot(RHOQ, aes(x=group, y = count)) + 
+  geom_point(aes(x=group), colour = "green", size = 3) + 
+  ggtitle("RHOQ expression") +
+  theme(axis.text.x = element_text(angle=45, vjust=.5, hjust=1))+
+  xlab("Group") + ylab("normalized count")
 
 #RGS2
 plotCounts(dds_n6, "ENSG00000116741", intgroup = c("Location")) 
